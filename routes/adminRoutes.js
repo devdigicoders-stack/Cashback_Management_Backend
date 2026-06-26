@@ -29,6 +29,7 @@ const {
   deleteOffer,
   getCashbackSummary,
   getCashbackTransactions,
+  registerAdmin,
 } = require('../controllers/adminController');
 
 const {
@@ -40,6 +41,9 @@ const {
 // All admin routes are protected and restricted to admin/sub-admin roles
 router.use(protect);
 router.use(authorize('admin', 'sub-admin'));
+
+// Admin Registration
+router.post('/register', registerAdmin);
 
 // Stats & Dashboard
 router.get('/dashboard', getDashboardStats);

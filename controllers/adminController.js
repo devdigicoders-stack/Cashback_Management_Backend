@@ -806,3 +806,45 @@ exports.updateAppConfig = async (req, res) => {
     return res.status(500).json({ success: false, message: 'Server error' });
   }
 };
+
+// @desc    Register a new Admin/Sub-Admin
+// @route   POST /api/admin/register
+// @access  Private (Admin only)
+exports.registerAdmin = async (req, res) => {
+  try {
+    const { name, phone, email, password, role } = req.body;
+
+    if (!name || !phone || !password) {
+      return res.status(400).json({ success: false, message: 'Please provide name, phone, and password' });
+    }
+
+    const assignedRole = role === 'sub-admin' ? 'sub-admin' : 'admin';
+
+    const userExists = await User.findOne({ phone });
+    if (userExists) {
+      return res.status(400).json({ success: false, message: 'Phone number already registered' });
+    }
+
+    const user = await User.create({
+      name,
+      phone,
+      email,
+      password,
+      role: assignedRole,
+    });
+
+    return res.status(201).json({
+      success: true,
+      message: `${assignedRole === 'admin' ? 'Admin' : 'Sub-Admin'} registered successfully`,
+      user: {
+        id: user._id,
+        name: user.name,
+        phone: user.phone,
+        role: user.role,
+      },
+    });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ success: false, message: 'Server error' });
+  }
+};
