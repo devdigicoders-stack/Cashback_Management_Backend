@@ -38,12 +38,12 @@ const {
   changePassword,
 } = require('../controllers/authController');
 
+// Admin Registration (Public route - No token required)
+router.post('/register', registerAdmin);
+
 // All admin routes are protected and restricted to admin/sub-admin roles
 router.use(protect);
 router.use(authorize('admin', 'sub-admin'));
-
-// Admin Registration
-router.post('/register', registerAdmin);
 
 // Stats & Dashboard
 router.get('/dashboard', getDashboardStats);
