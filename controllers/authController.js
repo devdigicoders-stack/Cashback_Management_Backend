@@ -17,10 +17,19 @@ const generateToken = (id) => {
 // @access  Public
 exports.register = async (req, res) => {
   try {
-    const { name, phone, email, password, role, shopDetails } = req.body;
+    let { name, phone, email, password, role, shopDetails } = req.body;
 
     if (!name || !phone || !password) {
       return res.status(400).json({ success: false, message: 'Please provide name, phone, and password' });
+    }
+
+    // Since formData sends values as strings, we parse shopDetails if it's a string
+    if (typeof shopDetails === 'string') {
+      try {
+        shopDetails = JSON.parse(shopDetails);
+      } catch (e) {
+        console.error('Failed to parse shopDetails:', e);
+      }
     }
 
     // Verify role is not admin/sub-admin on public registration
@@ -33,6 +42,12 @@ exports.register = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Phone number already registered' });
     }
 
+    // Handle optional profile image
+    let profileImageUrl = '';
+    if (req.file) {
+      profileImageUrl = `/uploads/${req.file.filename}`;
+    }
+
     // Create user
     const user = await User.create({
       name,
@@ -40,6 +55,7 @@ exports.register = async (req, res) => {
       email,
       password,
       role: role || 'electrician',
+      profileImage: profileImageUrl,
       shopDetails: role === 'retailer' ? shopDetails : undefined,
     });
 
@@ -127,13 +143,26 @@ exports.getMe = async (req, res) => {
 // @access  Private
 exports.updateProfile = async (req, res) => {
   try {
-    const { name, email, shopDetails } = req.body;
+    let { name, email, shopDetails } = req.body;
     const user = await User.findById(req.user.id);
+
+    // Parse shopDetails if sent as string (multipart/form-data)
+    if (typeof shopDetails === 'string') {
+      try {
+        shopDetails = JSON.parse(shopDetails);
+      } catch (e) {
+        console.error('Failed to parse shopDetails:', e);
+      }
+    }
 
     if (name) user.name = name;
     if (email) user.email = email;
     if (shopDetails && user.role === 'retailer') {
       user.shopDetails = { ...user.shopDetails, ...shopDetails };
+    }
+
+    if (req.file) {
+      user.profileImage = `/uploads/${req.file.filename}`;
     }
 
     await user.save();

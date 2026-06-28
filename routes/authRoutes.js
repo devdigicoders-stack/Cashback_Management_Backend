@@ -60,12 +60,12 @@ const kycUpload = upload.fields([
 ]);
 
 // Public routes
-router.post('/register', register);
+router.post('/register', upload.single('profileImage'), register);
 router.post('/login', login);
 
 // Private routes
 router.get('/me', protect, getMe);
-router.put('/profile', protect, updateProfile);
+router.put('/profile', protect, upload.single('profileImage'), updateProfile);
 router.put('/bank-details', protect, updateBankDetails);
 router.post('/change-password', protect, changePassword);
 
