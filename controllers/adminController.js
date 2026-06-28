@@ -69,7 +69,7 @@ exports.getUsers = async (req, res) => {
       ];
     }
 
-    const users = await User.find(query).select('-password');
+    const users = await User.find(query).select('-password').sort({ createdAt: -1 });
     return res.status(200).json({ success: true, count: users.length, users });
   } catch (error) {
     console.error(error);
