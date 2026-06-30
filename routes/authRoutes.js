@@ -81,6 +81,6 @@ router.post('/service-requests', protect, createServiceRequest);
 router.get('/service-requests', protect, getServiceRequests);
 
 // Website / App content
-router.get('/app-config', protect, getAppConfig);
+router.get('/app-config', getAppConfig);
 
 module.exports = router;
