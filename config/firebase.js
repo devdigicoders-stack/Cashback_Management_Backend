@@ -23,6 +23,8 @@ const sendPushNotification = async (token, title, body, data = {}) => {
     token,
   };
 
+  // ggdsdv
+
   try {
     const response = await admin.messaging().send(message);
     console.log('Successfully sent push notification:', response);
