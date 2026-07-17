@@ -5,6 +5,7 @@ const Transaction = require('../models/Transaction');
 const Withdrawal = require('../models/Withdrawal');
 const Notification = require('../models/Notification');
 const Offer = require('../models/Offer');
+const QRCode = require('../models/QRCode');
 
 // @desc    Get Retailer Dashboard Overview
 // @route   GET /api/retailer/dashboard
@@ -160,6 +161,100 @@ exports.getTransactions = async (req, res) => {
   try {
     const transactions = await Transaction.find({ userId: req.user.id }).sort({ createdAt: -1 });
     return res.status(200).json({ success: true, count: transactions.length, transactions });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ success: false, message: 'Server error' });
+  }
+};
+
+// @desc    Scan QR Code & Get Instant Cashback for Retailer
+// @route   POST /api/retailer/scan-qr
+// @access  Private (Retailer only)
+exports.scanQRCode = async (req, res) => {
+  try {
+    const { code } = req.body;
+
+    if (!code) {
+      return res.status(400).json({ success: false, message: 'Please provide a QR Code to scan' });
+    }
+
+    const user = await User.findById(req.user.id);
+    if (!user) return res.status(404).json({ success: false, message: 'User not found' });
+
+    if (user.kycStatus !== 'approved') {
+      return res.status(403).json({
+        success: false,
+        message: 'Your KYC verification is pending. Please wait for admin approval to scan and redeem cashback.',
+      });
+    }
+
+    const initialQR = await QRCode.findOne({ code }).populate('productId');
+    
+    if (!initialQR) {
+      return res.status(404).json({ success: false, message: 'Invalid QR Code' });
+    }
+
+    if (initialQR.qrType !== 'retailer') {
+      return res.status(400).json({ success: false, message: 'This QR Code is not valid for Retailers.' });
+    }
+
+    if (initialQR.status === 'scanned') {
+      return res.status(400).json({ success: false, message: 'This QR Code has already been scanned and redeemed.' });
+    }
+
+    const product = initialQR.productId;
+    const cashbackAmount = product.cashbackConfig?.retailerAmount || 0;
+
+    if (cashbackAmount <= 0) {
+      return res.status(400).json({ success: false, message: 'No cashback is configured for this product.' });
+    }
+
+    const updatedQR = await QRCode.findOneAndUpdate(
+      { code, status: 'generated' }, 
+      {
+        $set: {
+          status: 'scanned',
+          scannedBy: user._id,
+          scannedAt: Date.now(),
+          cashbackAmountCredited: cashbackAmount,
+        }
+      },
+      { new: true }
+    );
+
+    if (!updatedQR) {
+      return res.status(400).json({ success: false, message: 'This QR Code was just scanned by another process' });
+    }
+
+    let wallet = await Wallet.findOne({ userId: user._id });
+    if (!wallet) {
+      wallet = await Wallet.create({ userId: user._id, balance: 0 });
+    }
+
+    wallet.balance += cashbackAmount;
+    await wallet.save();
+
+    await Transaction.create({
+      userId: user._id,
+      walletId: wallet._id,
+      amount: cashbackAmount,
+      type: 'credit_cashback',
+      status: 'completed',
+      description: `Retailer cashback credited for scanning ${product.name} (SKU: ${product.sku})`,
+    });
+
+    await Notification.create({
+      userId: user._id,
+      title: 'Cashback Received!',
+      message: `₹${cashbackAmount} has been instantly credited to your wallet for scanning ${product.name}.`,
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: 'QR Code scanned successfully. Cashback credited.',
+      cashbackCredited: cashbackAmount,
+      newWalletBalance: wallet.balance,
+    });
   } catch (error) {
     console.error(error);
     return res.status(500).json({ success: false, message: 'Server error' });

@@ -238,6 +238,27 @@ exports.changePassword = async (req, res) => {
   }
 };
 
+// @desc    Update FCM Token
+// @route   PUT /api/auth/fcm-token
+// @access  Private
+exports.updateFcmToken = async (req, res) => {
+  try {
+    const { fcmToken } = req.body;
+    if (!fcmToken) {
+      return res.status(400).json({ success: false, message: 'FCM token is required' });
+    }
+
+    const user = await User.findById(req.user.id);
+    user.fcmToken = fcmToken;
+    await user.save();
+
+    return res.status(200).json({ success: true, message: 'FCM token updated successfully' });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ success: false, message: 'Server error' });
+  }
+};
+
 // @desc    Submit KYC Details & Images
 // @route   PUT /api/auth/kyc/submit
 // @access  Private

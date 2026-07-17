@@ -9,6 +9,7 @@ const ServiceRequest = require('../models/ServiceRequest');
 const AppConfig = require('../models/AppConfig');
 const Offer = require('../models/Offer');
 const crypto = require('crypto');
+const { sendPushNotification, sendBulkPushNotifications } = require('../config/firebase');
 
 // @desc    Get Admin Dashboard Stats
 // @route   GET /api/admin/dashboard
@@ -142,6 +143,16 @@ exports.processKYC = async (req, res) => {
       type: 'kyc',
     });
 
+    if (user.fcmToken) {
+      await sendPushNotification(
+        user.fcmToken,
+        `${documentType.toUpperCase()} KYC ${action === 'approve' ? 'Approved' : 'Rejected'}`,
+        action === 'approve'
+          ? `Your ${documentType.toUpperCase()} has been verified successfully.`
+          : `Your ${documentType.toUpperCase()} verification failed.`
+      );
+    }
+
     return res.status(200).json({
       success: true,
       message: `KYC for ${documentType.toUpperCase()} ${action}d successfully.`,
@@ -241,10 +252,14 @@ exports.deleteProduct = async (req, res) => {
 // @access  Private (Admin only)
 exports.generateQRCodes = async (req, res) => {
   try {
-    const { productId, count } = req.body; // count: number of QR codes to generate
+    const { productId, count, qrType = 'electrician' } = req.body; // count: number of QR codes to generate
 
     if (!productId || !count || count <= 0) {
       return res.status(400).json({ success: false, message: 'Please provide productId and a valid count > 0' });
+    }
+    
+    if (!['electrician', 'retailer'].includes(qrType)) {
+      return res.status(400).json({ success: false, message: 'Invalid qrType' });
     }
 
     const product = await Product.findById(productId);
@@ -263,6 +278,7 @@ exports.generateQRCodes = async (req, res) => {
       generatedCodes.push({
         code: codeString,
         productId: product._id,
+        qrType: qrType,
         status: 'generated',
         generatedBy: req.user._id,
       });
@@ -274,7 +290,7 @@ exports.generateQRCodes = async (req, res) => {
       success: true,
       message: `Successfully generated ${count} QR codes for product ${product.name}`,
       count: qrcodes.length,
-      qrcodes: qrcodes.map((qr) => ({ id: qr._id, code: qr.code, status: qr.status })),
+      qrcodes: qrcodes.map((qr) => ({ id: qr._id, code: qr.code, status: qr.status, qrType: qr.qrType })),
     });
   } catch (error) {
     console.error(error);
@@ -393,6 +409,17 @@ exports.processWithdrawal = async (req, res) => {
       type: 'withdrawal',
     });
 
+    const user = await User.findById(withdrawal.userId);
+    if (user && user.fcmToken) {
+      await sendPushNotification(
+        user.fcmToken,
+        `Withdrawal ${action === 'approve' ? 'Approved' : 'Rejected'}`,
+        action === 'approve'
+          ? `Your withdrawal of ₹${withdrawal.amount} is processed.`
+          : `Your withdrawal of ₹${withdrawal.amount} was rejected.`
+      );
+    }
+
     return res.status(200).json({
       success: true,
       message: `Withdrawal request ${action}d successfully`,
@@ -478,6 +505,15 @@ exports.updateServiceRequestAdmin = async (req, res) => {
       type: 'general',
     });
 
+    const user = await User.findById(request.userId);
+    if (user && user.fcmToken) {
+      await sendPushNotification(
+        user.fcmToken,
+        `Support Request Update`,
+        `Your ticket "${request.title}" is now ${status}.`
+      );
+    }
+
     return res.status(200).json({ success: true, message: 'Service request updated successfully', request });
   } catch (error) {
     console.error(error);
@@ -503,7 +539,7 @@ exports.sendBulkNotification = async (req, res) => {
       filter.role = { $in: ['electrician', 'retailer'] };
     }
 
-    const users = await User.find(filter).select('_id');
+    const users = await User.find(filter).select('_id fcmToken');
     const notificationsToInsert = users.map((user) => ({
       userId: user._id,
       title,
@@ -512,6 +548,11 @@ exports.sendBulkNotification = async (req, res) => {
     }));
 
     await Notification.insertMany(notificationsToInsert);
+
+    const tokens = users.map(user => user.fcmToken).filter(token => token && token.trim() !== '');
+    if (tokens.length > 0) {
+      await sendBulkPushNotifications(tokens, title, message);
+    }
 
     return res.status(200).json({
       success: true,

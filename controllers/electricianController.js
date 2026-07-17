@@ -65,6 +65,10 @@ exports.scanQRCode = async (req, res) => {
       return res.status(404).json({ success: false, message: 'Invalid QR Code' });
     }
 
+    if (initialQR.qrType !== 'electrician') {
+      return res.status(400).json({ success: false, message: 'This QR Code is not valid for Electricians.' });
+    }
+
     if (initialQR.status === 'scanned') {
       return res.status(400).json({ success: false, message: 'This QR Code has already been scanned and redeemed.' });
     }

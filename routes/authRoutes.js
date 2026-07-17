@@ -17,6 +17,7 @@ const {
   createServiceRequest,
   getServiceRequests,
   getAppConfig,
+  updateFcmToken,
 } = require('../controllers/authController');
 
 const { protect } = require('../middlewares/authMiddleware');
@@ -68,6 +69,7 @@ router.get('/me', protect, getMe);
 router.put('/profile', protect, upload.single('profileImage'), updateProfile);
 router.put('/bank-details', protect, updateBankDetails);
 router.post('/change-password', protect, changePassword);
+router.put('/fcm-token', protect, updateFcmToken);
 
 // KYC upload route
 router.put('/kyc/submit', protect, kycUpload, submitKYC);

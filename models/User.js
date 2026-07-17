@@ -70,6 +70,10 @@ const UserSchema = new mongoose.Schema(
       ifscCode: { type: String },
       bankName: { type: String },
     },
+    fcmToken: {
+      type: String,
+      default: '',
+    },
   },
   {
     timestamps: true,

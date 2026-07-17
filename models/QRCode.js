@@ -13,6 +13,11 @@ const QRCodeSchema = new mongoose.Schema(
       ref: 'Product',
       required: true,
     },
+    qrType: {
+      type: String,
+      enum: ['electrician', 'retailer'],
+      default: 'electrician',
+    },
     status: {
       type: String,
       enum: ['generated', 'assigned', 'scanned'],

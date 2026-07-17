@@ -8,6 +8,7 @@ const {
   getOffersAndSchemes,
   requestWithdrawal,
   getTransactions,
+  scanQRCode,
 } = require('../controllers/retailerController');
 
 // All retailer routes are protected and restricted to retailers
@@ -19,5 +20,6 @@ router.put('/shop-details', updateShopDetails);
 router.get('/offers', getOffersAndSchemes);
 router.post('/withdraw', requestWithdrawal);
 router.get('/transactions', getTransactions);
+router.post('/scan-qr', scanQRCode);
 
 module.exports = router;
