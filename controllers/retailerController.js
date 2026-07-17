@@ -181,7 +181,7 @@ exports.scanQRCode = async (req, res) => {
     const user = await User.findById(req.user.id);
     if (!user) return res.status(404).json({ success: false, message: 'User not found' });
 
-    if (user.kycStatus !== 'approved') {
+    if (user.kycStatus.aadhar !== 'approved' || user.kycStatus.pan !== 'approved') {
       return res.status(403).json({
         success: false,
         message: 'Your KYC verification is pending. Please wait for admin approval to scan and redeem cashback.',
