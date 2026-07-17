@@ -239,6 +239,7 @@ exports.scanQRCode = async (req, res) => {
       walletId: wallet._id,
       amount: cashbackAmount,
       type: 'credit_cashback',
+      referenceId: initialQR._id,
       status: 'completed',
       description: `Retailer cashback credited for scanning ${product.name} (SKU: ${product.sku})`,
     });
@@ -247,6 +248,7 @@ exports.scanQRCode = async (req, res) => {
       userId: user._id,
       title: 'Cashback Received!',
       message: `₹${cashbackAmount} has been instantly credited to your wallet for scanning ${product.name}.`,
+      type: 'cashback',
     });
 
     return res.status(200).json({
