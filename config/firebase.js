@@ -1,22 +1,10 @@
 const admin = require('firebase-admin');
 
-// Ensure that private key has literal newlines properly replaced if they come stringified
-let privateKey = process.env.FIREBASE_PRIVATE_KEY;
-if (privateKey) {
-  // If it's wrapped in quotes and contains \n as string characters
-  privateKey = privateKey.replace(/\\n/g, '\n');
-  if (privateKey.startsWith('"') && privateKey.endsWith('"')) {
-    privateKey = privateKey.slice(1, -1);
-  }
-}
+const serviceAccount = require('./firebase-service-account.json');
 
 try {
   admin.initializeApp({
-    credential: admin.credential.cert({
-      projectId: process.env.FIREBASE_PROJECT_ID,
-      clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-      privateKey: privateKey,
-    }),
+    credential: admin.credential.cert(serviceAccount),
   });
   console.log('Firebase Admin SDK Initialized Successfully.');
 } catch (error) {
