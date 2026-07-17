@@ -18,6 +18,9 @@ const UserSchema = new mongoose.Schema(
       trim: true,
       lowercase: true,
     },
+    firmName: {
+      type: String,
+    },
     profileImage: {
       type: String,
       default: '',

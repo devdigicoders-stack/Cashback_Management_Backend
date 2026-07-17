@@ -17,7 +17,7 @@ const generateToken = (id) => {
 // @access  Public
 exports.register = async (req, res) => {
   try {
-    let { name, phone, email, password, role, shopDetails } = req.body;
+    let { name, phone, email, password, role, shopDetails, firmName } = req.body;
 
     if (!name || !phone || !password) {
       return res.status(400).json({ success: false, message: 'Please provide name, phone, and password' });
@@ -53,6 +53,7 @@ exports.register = async (req, res) => {
       name,
       phone,
       email,
+      firmName,
       password,
       role: role || 'electrician',
       profileImage: profileImageUrl,
@@ -143,7 +144,7 @@ exports.getMe = async (req, res) => {
 // @access  Private
 exports.updateProfile = async (req, res) => {
   try {
-    let { name, email, shopDetails } = req.body;
+    let { name, email, shopDetails, firmName } = req.body;
     const user = await User.findById(req.user.id);
 
     // Parse shopDetails if sent as string (multipart/form-data)
@@ -157,6 +158,7 @@ exports.updateProfile = async (req, res) => {
 
     if (name) user.name = name;
     if (email) user.email = email;
+    if (firmName) user.firmName = firmName;
     if (shopDetails && user.role === 'retailer') {
       user.shopDetails = { ...user.shopDetails, ...shopDetails };
     }
