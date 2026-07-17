@@ -235,8 +235,24 @@ exports.getScanHistory = async (req, res) => {
 // @access  Private (Electrician only)
 exports.getTransactions = async (req, res) => {
   try {
-    const transactions = await Transaction.find({ userId: req.user.id }).sort({ createdAt: -1 });
-    return res.status(200).json({ success: true, count: transactions.length, transactions });
+    const transactions = await Transaction.find({ userId: req.user.id }).lean();
+    const pendingWithdrawals = await Withdrawal.find({ userId: req.user.id, status: 'pending' }).lean();
+
+    const merged = [
+      ...transactions,
+      ...pendingWithdrawals.map((w) => ({
+        _id: w._id,
+        type: 'debit_withdrawal',
+        amount: w.amount,
+        status: 'pending',
+        description: 'Withdrawal request pending admin approval',
+        createdAt: w.createdAt,
+      }))
+    ];
+
+    merged.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+
+    return res.status(200).json({ success: true, count: merged.length, transactions: merged });
   } catch (error) {
     console.error(error);
     return res.status(500).json({ success: false, message: 'Server error' });
