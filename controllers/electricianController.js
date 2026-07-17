@@ -49,12 +49,12 @@ exports.scanQRCode = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Please provide QR code string' });
     }
 
-    // 1. Enforce KYC verification
+    // 1. Enforce KYC verification (PAN is optional for Electrician, only Aadhar is mandatory)
     const user = await User.findById(req.user.id);
-    if (user.kycStatus.aadhar !== 'approved' || user.kycStatus.pan !== 'approved') {
+    if (user.kycStatus.aadhar !== 'approved') {
       return res.status(400).json({
         success: false,
-        message: 'Your Aadhaar & PAN KYC verification is pending. Please wait for admin approval to scan and redeem cashback.',
+        message: 'Your Aadhaar KYC verification is pending. Please wait for admin approval to scan and redeem cashback.',
         kycStatus: user.kycStatus,
       });
     }
