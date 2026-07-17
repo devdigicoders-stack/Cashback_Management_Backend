@@ -1,4 +1,5 @@
-const admin = require('firebase-admin');
+const { initializeApp, cert } = require('firebase-admin/app');
+const { getMessaging } = require('firebase-admin/messaging');
 
 // Load credentials from environment variables (Required for Production/Render)
 let privateKey = process.env.FIREBASE_PRIVATE_KEY;
@@ -11,8 +12,8 @@ if (privateKey) {
 }
 
 try {
-  admin.initializeApp({
-    credential: admin.credential.cert({
+  initializeApp({
+    credential: cert({
       projectId: process.env.FIREBASE_PROJECT_ID,
       clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
       privateKey: privateKey,
@@ -22,7 +23,7 @@ try {
 } catch (error) {
   console.error('Firebase Admin SDK Initialization Error:', error.message);
 }
-// jjjj
+
 const sendPushNotification = async (token, title, body, data = {}) => {
   if (!token) return;
 
@@ -35,10 +36,8 @@ const sendPushNotification = async (token, title, body, data = {}) => {
     token,
   };
 
-  // ggdsdv
-
   try {
-    const response = await admin.messaging().send(message);
+    const response = await getMessaging().send(message);
     console.log('Successfully sent push notification:', response);
   } catch (error) {
     console.error('Error sending push notification:', error.message);
@@ -58,7 +57,7 @@ const sendBulkPushNotifications = async (tokens, title, body, data = {}) => {
   };
 
   try {
-    const response = await admin.messaging().sendMulticast(message);
+    const response = await getMessaging().sendEachForMulticast(message);
     console.log(
       `Successfully sent bulk push notifications. Success count: ${response.successCount}, Failure count: ${response.failureCount}`
     );
@@ -68,7 +67,6 @@ const sendBulkPushNotifications = async (tokens, title, body, data = {}) => {
 };
 
 module.exports = {
-  admin,
   sendPushNotification,
   sendBulkPushNotifications,
 };
