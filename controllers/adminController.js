@@ -169,19 +169,23 @@ exports.processKYC = async (req, res) => {
 // @access  Private (Admin only)
 exports.addProduct = async (req, res) => {
   try {
-    const { name, sku, category, description, cashbackConfig } = req.body;
+    const { name, sku, category, description, size, cashbackConfig } = req.body;
 
     if (!name || !sku || !category) {
       return res.status(400).json({ success: false, message: 'Please provide name, sku, and category' });
     }
 
-    // SKU check removed as per user request
+    const productExists = await Product.findOne({ sku });
+    if (productExists) {
+      return res.status(400).json({ success: false, message: 'Product SKU already exists' });
+    }
 
     const product = await Product.create({
       name,
       sku,
       category,
       description,
+      size,
       cashbackConfig,
     });
 
