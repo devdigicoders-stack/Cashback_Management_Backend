@@ -30,6 +30,9 @@ const {
   getCashbackSummary,
   getCashbackTransactions,
   registerAdmin,
+  updateUserDetails,
+  updateUserStatus,
+  deleteUser,
 } = require('../controllers/adminController');
 
 const {
@@ -56,6 +59,9 @@ router.post('/change-password', changePassword);
 // Users Management
 router.get('/users', getUsers);
 router.get('/users/:id', getUserById);
+router.put('/users/:id', updateUserDetails);
+router.delete('/users/:id', deleteUser);
+router.put('/users/:id/status', updateUserStatus);
 router.put('/users/:id/kyc-process', processKYC);
 
 // Products Management

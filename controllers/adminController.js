@@ -890,3 +890,77 @@ exports.registerAdmin = async (req, res) => {
     return res.status(500).json({ success: false, message: 'Server error' });
   }
 };
+
+// @desc    Update basic user details (Admin)
+// @route   PUT /api/admin/users/:id
+// @access  Private (Admin only)
+exports.updateUserDetails = async (req, res) => {
+  try {
+    const { name, email, phone, firmName } = req.body;
+    const user = await User.findById(req.params.id);
+
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    if (name) user.name = name;
+    if (email !== undefined) user.email = email;
+    if (phone) user.phone = phone;
+    if (firmName !== undefined) user.firmName = firmName;
+
+    await user.save();
+    return res.status(200).json({ success: true, message: 'User details updated successfully', user });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ success: false, message: 'Server error' });
+  }
+};
+
+// @desc    Update user active status (Admin)
+// @route   PUT /api/admin/users/:id/status
+// @access  Private (Admin only)
+exports.updateUserStatus = async (req, res) => {
+  try {
+    const { isActive } = req.body;
+    
+    if (isActive === undefined) {
+      return res.status(400).json({ success: false, message: 'isActive field is required' });
+    }
+
+    const user = await User.findById(req.params.id);
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    user.isActive = isActive;
+    await user.save();
+
+    return res.status(200).json({ success: true, message: `User account is now ${isActive ? 'active' : 'inactive'}` });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ success: false, message: 'Server error' });
+  }
+};
+
+// @desc    Delete a user completely
+// @route   DELETE /api/admin/users/:id
+// @access  Private (Admin only)
+exports.deleteUser = async (req, res) => {
+  try {
+    const user = await User.findById(req.params.id);
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    // Delete the associated wallet
+    await Wallet.findOneAndDelete({ userId: user._id });
+
+    // Delete the user
+    await User.findByIdAndDelete(req.params.id);
+
+    return res.status(200).json({ success: true, message: 'User and wallet deleted successfully' });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ success: false, message: 'Server error' });
+  }
+};
