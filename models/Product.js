@@ -10,7 +10,6 @@ const ProductSchema = new mongoose.Schema(
     sku: {
       type: String,
       required: [true, 'Please add a product SKU'],
-      unique: true,
       trim: true,
     },
     category: {
