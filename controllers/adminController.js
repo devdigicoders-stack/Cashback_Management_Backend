@@ -964,3 +964,57 @@ exports.deleteUser = async (req, res) => {
     return res.status(500).json({ success: false, message: 'Server error' });
   }
 };
+
+// @desc    Upload KYC documents for a user (Admin)
+// @route   PUT /api/admin/users/:id/kyc
+// @access  Private (Admin only)
+exports.uploadUserKYC = async (req, res) => {
+  try {
+    const { documentType, aadharNumber, panNumber } = req.body;
+    
+    if (!documentType || !['aadhar', 'pan'].includes(documentType)) {
+      return res.status(400).json({ success: false, message: 'Invalid document type. Must be aadhar or pan.' });
+    }
+
+    const user = await User.findById(req.params.id);
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    if (documentType === 'aadhar') {
+      if (!req.files || !req.files.aadharFront || !req.files.aadharBack) {
+        return res.status(400).json({ success: false, message: 'Both Aadhar Front and Back images are required' });
+      }
+      user.kycDetails = {
+        ...user.kycDetails,
+        aadharNumber: aadharNumber || user.kycDetails?.aadharNumber,
+        aadharFrontUrl: `/uploads/${req.files.aadharFront[0].filename}`,
+        aadharBackUrl: `/uploads/${req.files.aadharBack[0].filename}`
+      };
+      user.kycStatus.aadhar = 'approved';
+    } else if (documentType === 'pan') {
+      if (!req.files || !req.files.panCard) {
+        return res.status(400).json({ success: false, message: 'PAN card image is required' });
+      }
+      user.kycDetails = {
+        ...user.kycDetails,
+        panNumber: panNumber || user.kycDetails?.panNumber,
+        panCardUrl: `/uploads/${req.files.panCard[0].filename}`
+      };
+      user.kycStatus.pan = 'approved';
+    }
+
+    user.kycDetails.rejectionReason = '';
+    await user.save();
+
+    return res.status(200).json({
+      success: true,
+      message: `${documentType.toUpperCase()} KYC uploaded and approved successfully`,
+      kycStatus: user.kycStatus,
+      kycDetails: user.kycDetails,
+    });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ success: false, message: 'Server error' });
+  }
+};
