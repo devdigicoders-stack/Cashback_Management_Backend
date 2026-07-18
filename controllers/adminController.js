@@ -175,10 +175,7 @@ exports.addProduct = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Please provide name, sku, and category' });
     }
 
-    const productExists = await Product.findOne({ sku });
-    if (productExists) {
-      return res.status(400).json({ success: false, message: 'Product SKU already exists' });
-    }
+    // SKU check removed as per user request
 
     const product = await Product.create({
       name,
