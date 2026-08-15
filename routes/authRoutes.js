@@ -18,6 +18,12 @@ const {
   getServiceRequests,
   getAppConfig,
   updateFcmToken,
+  forgotPassword,
+  verifyOTP,
+  resetPassword,
+  initDigilocker,
+  digilockerWebhook,
+  verifyDigilocker,
 } = require('../controllers/authController');
 
 const { protect } = require('../middlewares/authMiddleware');
@@ -63,6 +69,9 @@ const kycUpload = upload.fields([
 // Public routes
 router.post('/register', upload.single('profileImage'), register);
 router.post('/login', login);
+router.post('/forgot-password', forgotPassword);
+router.post('/verify-otp', verifyOTP);
+router.post('/reset-password', resetPassword);
 
 // Private routes
 router.get('/me', protect, getMe);
@@ -73,6 +82,12 @@ router.put('/fcm-token', protect, updateFcmToken);
 
 // KYC upload route
 router.put('/kyc/submit', protect, kycUpload, submitKYC);
+
+// DigiLocker KYC routes
+router.post('/kyc/digilocker/initialize', protect, initDigilocker);
+router.post('/kyc/digilocker/webhook', digilockerWebhook);
+router.post('/kyc/digilocker/verify', protect, verifyDigilocker);
+
 
 // Notifications routes
 router.get('/notifications', protect, getNotifications);

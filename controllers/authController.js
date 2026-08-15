@@ -1,9 +1,11 @@
 const jwt = require('jsonwebtoken');
+const bcrypt = require('bcryptjs');
 const User = require('../models/User');
 const Wallet = require('../models/Wallet');
 const Notification = require('../models/Notification');
 const ServiceRequest = require('../models/ServiceRequest');
 const AppConfig = require('../models/AppConfig');
+const sendEmail = require('../utils/sendEmail');
 
 // Generate JWT Token
 const generateToken = (id) => {
@@ -403,6 +405,256 @@ exports.getAppConfig = async (req, res) => {
       config = await AppConfig.create({});
     }
     return res.status(200).json({ success: true, config });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ success: false, message: 'Server error' });
+  }
+};
+
+// @desc    Forgot Password - Send OTP to email
+// @route   POST /api/auth/forgot-password
+// @access  Public
+exports.forgotPassword = async (req, res) => {
+  try {
+    const { email } = req.body;
+    if (!email) {
+      return res.status(400).json({ success: false, message: 'Please provide an email address' });
+    }
+
+    const user = await User.findOne({ email });
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found with this email' });
+    }
+
+    // Generate 6-digit OTP
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+
+    // Set OTP and expiration (10 minutes)
+    user.resetPasswordOTP = otp;
+    user.resetPasswordOTPExpire = Date.now() + 10 * 60 * 1000;
+    await user.save();
+
+    // Send Email
+    const message = `You requested a password reset. Your OTP is: ${otp}\n\nThis OTP is valid for 10 minutes.`;
+    
+    try {
+      await sendEmail({
+        email: user.email,
+        subject: 'Password Reset OTP',
+        message: message,
+      });
+
+      return res.status(200).json({ success: true, message: 'OTP sent to email successfully' });
+    } catch (err) {
+      console.error('Email could not be sent', err);
+      user.resetPasswordOTP = undefined;
+      user.resetPasswordOTPExpire = undefined;
+      await user.save();
+      return res.status(500).json({ success: false, message: 'Email could not be sent' });
+    }
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ success: false, message: 'Server error' });
+  }
+};
+
+// @desc    Verify OTP
+// @route   POST /api/auth/verify-otp
+// @access  Public
+exports.verifyOTP = async (req, res) => {
+  try {
+    const { email, otp } = req.body;
+    
+    if (!email || !otp) {
+      return res.status(400).json({ success: false, message: 'Please provide email and OTP' });
+    }
+
+    const user = await User.findOne({ 
+      email,
+      resetPasswordOTP: otp,
+      resetPasswordOTPExpire: { $gt: Date.now() }
+    });
+
+    if (!user) {
+      return res.status(400).json({ success: false, message: 'Invalid or expired OTP' });
+    }
+
+    return res.status(200).json({ success: true, message: 'OTP verified successfully' });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ success: false, message: 'Server error' });
+  }
+};
+
+// @desc    Reset Password
+// @route   POST /api/auth/reset-password
+// @access  Public
+exports.resetPassword = async (req, res) => {
+  try {
+    const { email, otp, newPassword } = req.body;
+
+    if (!email || !otp || !newPassword) {
+      return res.status(400).json({ success: false, message: 'Please provide email, OTP, and new password' });
+    }
+
+    const user = await User.findOne({ 
+      email,
+      resetPasswordOTP: otp,
+      resetPasswordOTPExpire: { $gt: Date.now() }
+    });
+
+    if (!user) {
+      return res.status(400).json({ success: false, message: 'Invalid or expired OTP' });
+    }
+
+    // Set new password
+    user.password = newPassword;
+    
+    // Clear OTP fields
+    user.resetPasswordOTP = undefined;
+    user.resetPasswordOTPExpire = undefined;
+    
+    await user.save();
+
+    return res.status(200).json({ success: true, message: 'Password reset successfully' });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ success: false, message: 'Server error' });
+  }
+};
+
+// @desc    Initialize DigiLocker verification session
+// @route   POST /api/auth/kyc/digilocker/initialize
+// @access  Private
+exports.initDigilocker = async (req, res) => {
+  try {
+    const response = await fetch(`${process.env.SUREPASS_BASE_URL}/api/v1/digilocker/initialize`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${process.env.SUREPASS_API_TOKEN}`
+      },
+      body: JSON.stringify({
+        data: {
+          signup_flow: true,
+          skip_main_screen: false,
+          webhook_url: `${process.env.APP_BASE_URL}/api/auth/kyc/digilocker/webhook`
+        }
+      })
+    });
+
+    const data = await response.json();
+    if (!response.ok || !data.success) {
+      return res.status(400).json({ success: false, message: data.message || 'Failed to initialize DigiLocker' });
+    }
+
+    // Save clientId to user so webhook can find them later
+    const user = await User.findById(req.user.id);
+    user.kycDetails = { ...user.kycDetails, digilockerClientId: data.data.client_id };
+    await user.save();
+
+    return res.status(200).json({
+      success: true,
+      clientId: data.data.client_id,
+      token: data.data.token,
+      url: data.data.url,
+      expirySeconds: data.data.expiry_seconds
+    });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ success: false, message: 'Server error' });
+  }
+};
+
+// @desc    DigiLocker webhook - called by Surepass after user verifies
+// @route   POST /api/auth/kyc/digilocker/webhook
+// @access  Public
+exports.digilockerWebhook = async (req, res) => {
+  try {
+    const { client_id, status } = req.body;
+    if (!client_id || status !== 'success') {
+      return res.status(200).json({ received: true });
+    }
+
+    const response = await fetch(`${process.env.SUREPASS_BASE_URL}/api/v1/digilocker/download-aadhaar/${client_id}`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${process.env.SUREPASS_API_TOKEN}`
+      }
+    });
+
+    const data = await response.json();
+    if (response.ok && data.success && data.data) {
+      const aadhaar = data.data.aadhaar_xml_data || data.data.digilocker_metadata || {};
+      const user = await User.findOne({ 'kycDetails.digilockerClientId': client_id });
+      if (user) {
+        user.kycDetails = {
+          ...user.kycDetails,
+          aadharName: aadhaar.full_name || aadhaar.name,
+          aadharDob: aadhaar.dob,
+          aadharGender: aadhaar.gender,
+          aadharAddress: aadhaar.full_address || JSON.stringify(aadhaar.address || {}),
+          maskedAadhaar: aadhaar.masked_aadhaar,
+        };
+        user.kycStatus.aadhar = 'approved';
+        await user.save();
+      }
+    }
+
+    return res.status(200).json({ received: true });
+  } catch (error) {
+    console.error('DigiLocker webhook error:', error);
+    return res.status(200).json({ received: true });
+  }
+};
+
+// @desc    Check DigiLocker status & fetch Aadhaar data (called from app after user completes flow)
+// @route   POST /api/auth/kyc/digilocker/verify
+// @access  Private
+exports.verifyDigilocker = async (req, res) => {
+  try {
+    const { clientId } = req.body;
+    if (!clientId) {
+      return res.status(400).json({ success: false, message: 'clientId is required' });
+    }
+
+    const response = await fetch(`${process.env.SUREPASS_BASE_URL}/api/v1/digilocker/download-aadhaar/${clientId}`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${process.env.SUREPASS_API_TOKEN}`
+      }
+    });
+
+    const data = await response.json();
+    if (!response.ok || !data.success) {
+      return res.status(400).json({ success: false, message: data.message || 'Verification not completed yet' });
+    }
+
+    const aadhaar = data.data.aadhaar_xml_data || data.data.digilocker_metadata || {};
+    const user = await User.findById(req.user.id);
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    user.kycDetails = {
+      ...user.kycDetails,
+      aadharName: aadhaar.full_name || aadhaar.name,
+      aadharDob: aadhaar.dob,
+      aadharGender: aadhaar.gender,
+      aadharAddress: aadhaar.full_address || JSON.stringify(aadhaar.address || {}),
+      maskedAadhaar: aadhaar.masked_aadhaar,
+    };
+    user.kycStatus.aadhar = 'approved';
+    await user.save();
+
+    return res.status(200).json({
+      success: true,
+      message: 'Aadhaar verified successfully via DigiLocker',
+      kycStatus: user.kycStatus,
+      kycDetails: user.kycDetails
+    });
   } catch (error) {
     console.error(error);
     return res.status(500).json({ success: false, message: 'Server error' });

@@ -22,11 +22,11 @@ const AppConfigSchema = new mongoose.Schema(
     ],
     contactPhone: {
       type: String,
-      default: '+919999999999',
+      default: '9194702054',
     },
     contactEmail: {
       type: String,
-      default: 'support@cashback.com',
+      default: 'augustfortis@gmail.com',
     },
     rateUsUrl: {
       type: String,
