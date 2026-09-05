@@ -10,7 +10,7 @@ const sendEmail = require('../utils/sendEmail');
 // Generate JWT Token
 const generateToken = (id) => {
   return jwt.sign({ id }, process.env.JWT_SECRET, {
-    expiresIn: '30d',
+    expiresIn: '5y',
   });
 };
 
@@ -60,6 +60,7 @@ exports.register = async (req, res) => {
       role: role || 'electrician',
       profileImage: profileImageUrl,
       shopDetails: role === 'retailer' ? shopDetails : undefined,
+      isActive: false, // Wait for admin approval
     });
 
     // Create a wallet for the user (except admins)
@@ -70,7 +71,7 @@ exports.register = async (req, res) => {
 
     return res.status(201).json({
       success: true,
-      token: generateToken(user._id),
+      message: 'Registration successful. Please wait for Admin approval.',
       user: {
         id: user._id,
         name: user.name,
