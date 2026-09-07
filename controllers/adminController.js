@@ -169,20 +169,21 @@ exports.processKYC = async (req, res) => {
 // @access  Private (Admin only)
 exports.addProduct = async (req, res) => {
   try {
-    const { name, sku, category, description, size, cashbackConfig } = req.body;
+    const { name, sku, barcode, category, description, size, cashbackConfig } = req.body;
 
-    if (!name || !sku || !category) {
-      return res.status(400).json({ success: false, message: 'Please provide name, sku, and category' });
+    if (!name || !sku || !barcode || !category) {
+      return res.status(400).json({ success: false, message: 'Please provide name, sku, barcode, and category' });
     }
 
-    const productExists = await Product.findOne({ sku });
+    const productExists = await Product.findOne({ barcode });
     if (productExists) {
-      return res.status(400).json({ success: false, message: 'Product SKU already exists' });
+      return res.status(400).json({ success: false, message: 'Product Barcode already exists' });
     }
 
     const product = await Product.create({
       name,
       sku,
+      barcode,
       category,
       description,
       size,
@@ -214,6 +215,13 @@ exports.getProducts = async (req, res) => {
 // @access  Private (Admin only)
 exports.updateProduct = async (req, res) => {
   try {
+    if (req.body.barcode) {
+      const existingProduct = await Product.findOne({ barcode: req.body.barcode, _id: { $ne: req.params.id } });
+      if (existingProduct) {
+        return res.status(400).json({ success: false, message: 'Product Barcode already exists' });
+      }
+    }
+
     const product = await Product.findByIdAndUpdate(req.params.id, req.body, {
       new: true,
       runValidators: true,
