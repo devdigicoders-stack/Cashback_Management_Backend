@@ -4,6 +4,7 @@ const morgan = require('morgan');
 const path = require('path');
 const fs = require('fs');
 const dotenv = require('dotenv');
+const mongoose = require('mongoose');
 
 // Load environment variables
 dotenv.config();
@@ -59,6 +60,21 @@ app.use((err, req, res, next) => {
   });
 });
 
+// Function to drop the old unique SKU index if it exists
+const dropSkuIndex = async () => {
+  try {
+    const coll = mongoose.connection.collection('products');
+    const indexes = await coll.indexes();
+    const skuIndexExists = indexes.some(index => index.name === 'sku_1');
+    if (skuIndexExists) {
+      await coll.dropIndex('sku_1');
+      console.log('✅ SKU unique index dropped successfully from DB!');
+    }
+  } catch (error) {
+    console.error(`Error dropping SKU index: ${error.message}`);
+  }
+};
+
 // Seed default Admin User if not exists
 const seedAdmin = async () => {
   try {
@@ -86,5 +102,6 @@ const PORT = process.env.PORT || 5000;
 
 app.listen(PORT, async () => {
   console.log(`Server running on port ${PORT}`);
+  await dropSkuIndex();
   await seedAdmin();
 });
