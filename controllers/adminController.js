@@ -8,6 +8,7 @@ const Notification = require('../models/Notification');
 const ServiceRequest = require('../models/ServiceRequest');
 const AppConfig = require('../models/AppConfig');
 const Offer = require('../models/Offer');
+const SalesPerson = require('../models/SalesPerson');
 const crypto = require('crypto');
 const { sendPushNotification, sendBulkPushNotifications } = require('../config/firebase');
 
@@ -70,7 +71,10 @@ exports.getUsers = async (req, res) => {
       ];
     }
 
-    const users = await User.find(query).select('-password').sort({ createdAt: -1 });
+    const users = await User.find(query)
+      .select('-password')
+      .populate('salesPerson', 'name code phone email')
+      .sort({ createdAt: -1 });
     return res.status(200).json({ success: true, count: users.length, users });
   } catch (error) {
     console.error(error);
@@ -83,7 +87,9 @@ exports.getUsers = async (req, res) => {
 // @access  Private (Admin only)
 exports.getUserById = async (req, res) => {
   try {
-    const user = await User.findById(req.params.id).select('-password');
+    const user = await User.findById(req.params.id)
+      .select('-password')
+      .populate('salesPerson', 'name code phone email city area');
     if (!user) {
       return res.status(404).json({ success: false, message: 'User not found' });
     }

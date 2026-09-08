@@ -70,6 +70,16 @@ const UserSchema = new mongoose.Schema(
       ifscCode: { type: String },
       bankName: { type: String },
     },
+    salesPerson: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'SalesPerson',
+    },
+    salesCode: {
+      type: String,
+      trim: true,
+      uppercase: true,
+      default: '',
+    },
     fcmToken: {
       type: String,
       default: '',

@@ -96,6 +96,16 @@ router.get('/profile', getMe);
 router.put('/profile', updateProfile);
 router.post('/change-password', changePassword);
 
+const {
+  createSalesPerson,
+  getSalesPersons,
+  getSalesPersonById,
+  getSalesPersonUsers,
+  updateSalesPerson,
+  toggleSalesPersonStatus,
+  deleteSalesPerson,
+} = require('../controllers/salesPersonController');
+
 // Users Management
 router.get('/users', getUsers);
 router.get('/users/:id', getUserById);
@@ -104,6 +114,15 @@ router.delete('/users/:id', deleteUser);
 router.put('/users/:id/status', updateUserStatus);
 router.put('/users/:id/kyc-process', processKYC);
 router.put('/users/:id/kyc', kycUpload, uploadUserKYC);
+
+// Sales Persons Management & Drill-down
+router.post('/sales-persons', createSalesPerson);
+router.get('/sales-persons', getSalesPersons);
+router.get('/sales-persons/:id', getSalesPersonById);
+router.get('/sales-persons/:id/users', getSalesPersonUsers);
+router.put('/sales-persons/:id', updateSalesPerson);
+router.put('/sales-persons/:id/status', toggleSalesPersonStatus);
+router.delete('/sales-persons/:id', deleteSalesPerson);
 
 // Products Management
 router.post('/products', addProduct);

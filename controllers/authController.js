@@ -5,6 +5,7 @@ const Wallet = require('../models/Wallet');
 const Notification = require('../models/Notification');
 const ServiceRequest = require('../models/ServiceRequest');
 const AppConfig = require('../models/AppConfig');
+const SalesPerson = require('../models/SalesPerson');
 const sendEmail = require('../utils/sendEmail');
 
 // Generate JWT Token
@@ -19,7 +20,7 @@ const generateToken = (id) => {
 // @access  Public
 exports.register = async (req, res) => {
   try {
-    let { name, phone, email, password, role, shopDetails, firmName } = req.body;
+    let { name, phone, email, password, role, shopDetails, firmName, salesCode } = req.body;
 
     if (!name || !phone || !password) {
       return res.status(400).json({ success: false, message: 'Please provide name, phone, and password' });
@@ -44,6 +45,18 @@ exports.register = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Phone number already registered' });
     }
 
+    // Handle optional sales referral code
+    let salesPersonId = undefined;
+    let validSalesCode = '';
+    if (salesCode && salesCode.toString().trim()) {
+      const cleanCode = salesCode.toString().trim().toUpperCase();
+      const salesPersonDoc = await SalesPerson.findOne({ code: cleanCode, isActive: true });
+      if (salesPersonDoc) {
+        salesPersonId = salesPersonDoc._id;
+        validSalesCode = cleanCode;
+      }
+    }
+
     // Handle optional profile image
     let profileImageUrl = '';
     if (req.file) {
@@ -60,7 +73,9 @@ exports.register = async (req, res) => {
       role: role || 'electrician',
       profileImage: profileImageUrl,
       shopDetails: role === 'retailer' ? shopDetails : undefined,
-      isActive: false, // Wait for admin approval
+      salesPerson: salesPersonId,
+      salesCode: validSalesCode,
+      isActive: true, // User can log in immediately; scanning and withdrawals are protected by KYC status
     });
 
     // Create a wallet for the user (except admins)
@@ -71,13 +86,14 @@ exports.register = async (req, res) => {
 
     return res.status(201).json({
       success: true,
-      message: 'Registration successful. Please wait for Admin approval.',
+      message: 'Registration successful. Please log in to complete your KYC verification.',
       user: {
         id: user._id,
         name: user.name,
         phone: user.phone,
         role: user.role,
         kycStatus: user.kycStatus,
+        salesCode: user.salesCode,
       },
     });
   } catch (error) {
@@ -128,7 +144,7 @@ exports.login = async (req, res) => {
 // @access  Private
 exports.getMe = async (req, res) => {
   try {
-    const user = await User.findById(req.user.id);
+    const user = await User.findById(req.user.id).populate('salesPerson', 'name code phone');
     const wallet = await Wallet.findOne({ userId: req.user.id });
 
     return res.status(200).json({
