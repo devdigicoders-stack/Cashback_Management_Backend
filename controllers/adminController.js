@@ -1032,3 +1032,116 @@ exports.uploadUserKYC = async (req, res) => {
     return res.status(500).json({ success: false, message: 'Server error' });
   }
 };
+
+// @desc    Bulk Update Products (cashback amounts, isActive status, category)
+// @route   PUT /api/admin/products/bulk-update
+// @access  Private (Admin only)
+exports.bulkUpdateProducts = async (req, res) => {
+  try {
+    const { productIds, updateData } = req.body;
+
+    if (!productIds || !Array.isArray(productIds) || productIds.length === 0) {
+      return res.status(400).json({ success: false, message: 'Please provide an array of product IDs' });
+    }
+
+    if (!updateData || typeof updateData !== 'object') {
+      return res.status(400).json({ success: false, message: 'Please provide update data fields' });
+    }
+
+    const fieldsToUpdate = {};
+    if (typeof updateData.isActive === 'boolean') {
+      fieldsToUpdate.isActive = updateData.isActive;
+    }
+    if (updateData.category) {
+      fieldsToUpdate.category = updateData.category;
+    }
+    if (updateData.electricianAmount !== undefined || updateData.retailerAmount !== undefined) {
+      if (updateData.electricianAmount !== undefined) {
+        fieldsToUpdate['cashbackConfig.electricianAmount'] = Number(updateData.electricianAmount);
+      }
+      if (updateData.retailerAmount !== undefined) {
+        fieldsToUpdate['cashbackConfig.retailerAmount'] = Number(updateData.retailerAmount);
+      }
+    }
+
+    if (Object.keys(fieldsToUpdate).length === 0) {
+      return res.status(400).json({ success: false, message: 'No valid fields provided for bulk update' });
+    }
+
+    const result = await Product.updateMany(
+      { _id: { $in: productIds } },
+      { $set: fieldsToUpdate }
+    );
+
+    return res.status(200).json({
+      success: true,
+      message: `Successfully updated ${result.modifiedCount} products`,
+      modifiedCount: result.modifiedCount,
+    });
+  } catch (error) {
+    console.error('Bulk update error:', error);
+    return res.status(500).json({ success: false, message: 'Server error during bulk update' });
+  }
+};
+
+// @desc    Bulk Add / Import Products
+// @route   POST /api/admin/products/bulk
+// @access  Private (Admin only)
+exports.bulkAddProducts = async (req, res) => {
+  try {
+    const { products } = req.body; // Array of product objects
+
+    if (!products || !Array.isArray(products) || products.length === 0) {
+      return res.status(400).json({ success: false, message: 'Please provide an array of products to add' });
+    }
+
+    let addedCount = 0;
+    let skippedCount = 0;
+    const errors = [];
+
+    for (const prodData of products) {
+      const { name, sku, barcode, category, description, size, electricianAmount, retailerAmount, isActive } = prodData;
+
+      if (!name || !sku || !barcode || !category) {
+        skippedCount++;
+        errors.push(`Skipped "${name || 'Unnamed'}": Missing required fields`);
+        continue;
+      }
+
+      const existing = await Product.findOne({ barcode });
+      if (existing) {
+        skippedCount++;
+        errors.push(`Skipped "${name}": Barcode ${barcode} already exists`);
+        continue;
+      }
+
+      await Product.create({
+        name,
+        sku,
+        barcode,
+        category,
+        description: description || '',
+        size: size || '',
+        cashbackConfig: {
+          electricianAmount: Number(electricianAmount) || 0,
+          retailerAmount: Number(retailerAmount) || 0,
+        },
+        isActive: isActive !== undefined ? Boolean(isActive) : true,
+      });
+
+      addedCount++;
+    }
+
+    return res.status(201).json({
+      success: true,
+      message: `Added ${addedCount} products successfully. ${skippedCount > 0 ? `Skipped ${skippedCount} items.` : ''}`,
+      addedCount,
+      skippedCount,
+      errors,
+    });
+  } catch (error) {
+    console.error('Bulk add error:', error);
+    return res.status(500).json({ success: false, message: 'Server error during bulk creation' });
+  }
+};
+

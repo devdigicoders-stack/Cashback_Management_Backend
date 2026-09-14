@@ -47,6 +47,8 @@ const {
   getUserById,
   processKYC,
   addProduct,
+  bulkAddProducts,
+  bulkUpdateProducts,
   getProducts,
   updateProduct,
   deleteProduct,
@@ -126,6 +128,8 @@ router.delete('/sales-persons/:id', deleteSalesPerson);
 
 // Products Management
 router.post('/products', addProduct);
+router.post('/products/bulk', bulkAddProducts);
+router.put('/products/bulk-update', bulkUpdateProducts);
 router.get('/products', getProducts);
 router.put('/products/:id', updateProduct);
 router.delete('/products/:id', deleteProduct);

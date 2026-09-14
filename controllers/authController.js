@@ -26,6 +26,11 @@ exports.register = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Please provide name, phone, and password' });
     }
 
+    // Sales code is mandatory for all users
+    if (!salesCode || !salesCode.toString().trim()) {
+      return res.status(400).json({ success: false, message: 'Sales person code is required. Please enter a valid referral code.' });
+    }
+
     // Since formData sends values as strings, we parse shopDetails if it's a string
     if (typeof shopDetails === 'string') {
       try {
@@ -45,17 +50,14 @@ exports.register = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Phone number already registered' });
     }
 
-    // Handle optional sales referral code
-    let salesPersonId = undefined;
-    let validSalesCode = '';
-    if (salesCode && salesCode.toString().trim()) {
-      const cleanCode = salesCode.toString().trim().toUpperCase();
-      const salesPersonDoc = await SalesPerson.findOne({ code: cleanCode, isActive: true });
-      if (salesPersonDoc) {
-        salesPersonId = salesPersonDoc._id;
-        validSalesCode = cleanCode;
-      }
+    // Sales code is mandatory - validate against active sales persons
+    const cleanCode = salesCode.toString().trim().toUpperCase();
+    const salesPersonDoc = await SalesPerson.findOne({ code: cleanCode, isActive: true });
+    if (!salesPersonDoc) {
+      return res.status(400).json({ success: false, message: 'Invalid or inactive sales person code. Please enter a valid referral code.' });
     }
+    const salesPersonId = salesPersonDoc._id;
+    const validSalesCode = cleanCode;
 
     // Handle optional profile image
     let profileImageUrl = '';
