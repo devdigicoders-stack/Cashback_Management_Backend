@@ -313,23 +313,72 @@ exports.generateQRCodes = async (req, res) => {
   }
 };
 
-// @desc    Get QR Codes list with filters
+// @desc    Get QR Codes list with filters & reports
 // @route   GET /api/admin/qrcodes
 // @access  Private (Admin only)
 exports.getQRCodes = async (req, res) => {
   try {
-    const { status, productId } = req.query;
+    const { status, productId, qrType, startDate, endDate, search } = req.query;
     let filter = {};
 
-    if (status) filter.status = status;
-    if (productId) filter.productId = productId;
+    if (status && status !== 'all') filter.status = status;
+    if (productId && productId !== 'all') filter.productId = productId;
+    if (qrType && qrType !== 'all') filter.qrType = qrType;
 
-    const qrcodes = await QRCode.find(filter)
-      .populate('productId', 'name sku category')
-      .populate('scannedBy', 'name phone')
+    if (startDate || endDate) {
+      filter.createdAt = {};
+      if (startDate) {
+        const start = new Date(startDate);
+        start.setHours(0, 0, 0, 0);
+        filter.createdAt.$gte = start;
+      }
+      if (endDate) {
+        const end = new Date(endDate);
+        end.setHours(23, 59, 59, 999);
+        filter.createdAt.$lte = end;
+      }
+    }
+
+    let qrcodes = await QRCode.find(filter)
+      .populate('productId', 'name sku category points cashbackAmount')
+      .populate('scannedBy', 'name phone role')
       .sort({ createdAt: -1 });
 
-    return res.status(200).json({ success: true, count: qrcodes.length, qrcodes });
+    if (search) {
+      const q = search.toLowerCase();
+      qrcodes = qrcodes.filter((qr) => {
+        const code = qr.code?.toLowerCase() || '';
+        const prodName = qr.productId?.name?.toLowerCase() || '';
+        const prodSku = qr.productId?.sku?.toLowerCase() || '';
+        const scannerName = qr.scannedBy?.name?.toLowerCase() || '';
+        const scannerPhone = qr.scannedBy?.phone || '';
+        return (
+          code.includes(q) ||
+          prodName.includes(q) ||
+          prodSku.includes(q) ||
+          scannerName.includes(q) ||
+          scannerPhone.includes(q)
+        );
+      });
+    }
+
+    // Compute Summary Stats
+    const allQrs = await QRCode.find({});
+    const summary = {
+      totalCount: allQrs.length,
+      scannedCount: allQrs.filter((q) => q.status === 'scanned').length,
+      generatedCount: allQrs.filter((q) => q.status === 'generated').length,
+      totalCashbackDisbursed: allQrs
+        .filter((q) => q.status === 'scanned')
+        .reduce((sum, q) => sum + (q.cashbackAmountCredited || 0), 0),
+    };
+
+    return res.status(200).json({
+      success: true,
+      count: qrcodes.length,
+      summary,
+      qrcodes,
+    });
   } catch (error) {
     console.error(error);
     return res.status(500).json({ success: false, message: 'Server error' });
