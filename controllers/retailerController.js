@@ -111,14 +111,14 @@ exports.requestWithdrawal = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Insufficient wallet balance' });
     }
 
-    // Check outstanding pending withdrawals so user doesn't withdraw same balance twice
-    const pendingWithdrawalsList = await Withdrawal.find({ userId: user._id, status: 'pending' });
+    // Check outstanding pending/processing withdrawals so user doesn't withdraw same balance twice
+    const pendingWithdrawalsList = await Withdrawal.find({ userId: user._id, status: { $in: ['pending', 'processing'] } });
     const totalPendingAmount = pendingWithdrawalsList.reduce((acc, curr) => acc + curr.amount, 0);
 
     if (wallet.balance - totalPendingAmount < amount) {
       return res.status(400).json({
         success: false,
-        message: `Insufficient available balance. Current Wallet: ₹${wallet.balance}, Pending Withdrawals: ₹${totalPendingAmount}, Available: ₹${wallet.balance - totalPendingAmount}`,
+        message: `Insufficient available balance. Current Wallet: ₹${wallet.balance}, In-Process/Pending: ₹${totalPendingAmount}, Available: ₹${wallet.balance - totalPendingAmount}`,
       });
     }
 
@@ -160,17 +160,20 @@ exports.requestWithdrawal = async (req, res) => {
 exports.getTransactions = async (req, res) => {
   try {
     const transactions = await Transaction.find({ userId: req.user.id }).lean();
-    const pendingWithdrawals = await Withdrawal.find({ userId: req.user.id, status: 'pending' }).lean();
+    const activeWithdrawals = await Withdrawal.find({ userId: req.user.id, status: { $in: ['pending', 'processing'] } }).lean();
 
     const merged = [
       ...transactions,
-      ...pendingWithdrawals.map((w) => ({
+      ...activeWithdrawals.map((w) => ({
         _id: w._id,
         type: 'debit_withdrawal',
         amount: w.amount,
-        status: 'pending',
-        description: 'Withdrawal request pending admin approval',
+        status: w.status,
+        description: w.status === 'processing'
+          ? 'Payment in process (Bank RTGS/NEFT transfer queued)'
+          : 'Withdrawal request pending admin approval',
         createdAt: w.createdAt,
+        transactionNumber: w.transactionNumber || '',
       }))
     ];
 

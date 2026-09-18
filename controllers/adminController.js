@@ -341,32 +341,161 @@ exports.getQRCodes = async (req, res) => {
 // @access  Private (Admin only)
 exports.getWithdrawals = async (req, res) => {
   try {
-    const { status } = req.query;
+    const { status, startDate, endDate, search } = req.query;
     let query = {};
-    if (status) {
+
+    if (status && status !== 'all') {
       query.status = status;
     }
 
-    const withdrawals = await Withdrawal.find(query)
-      .populate('userId', 'name phone role')
+    if (startDate || endDate) {
+      query.createdAt = {};
+      if (startDate) {
+        const start = new Date(startDate);
+        start.setHours(0, 0, 0, 0);
+        query.createdAt.$gte = start;
+      }
+      if (endDate) {
+        const end = new Date(endDate);
+        end.setHours(23, 59, 59, 999);
+        query.createdAt.$lte = end;
+      }
+    }
+
+    let withdrawals = await Withdrawal.find(query)
+      .populate('userId', 'name phone email role firmName bankDetails salesCode salesPerson')
+      .populate('approvedOrRejectedBy', 'name phone role')
       .sort({ createdAt: -1 });
 
-    return res.status(200).json({ success: true, count: withdrawals.length, withdrawals });
+    if (search) {
+      const q = search.toLowerCase();
+      withdrawals = withdrawals.filter((w) => {
+        const userName = w.userId?.name?.toLowerCase() || '';
+        const userPhone = w.userId?.phone || '';
+        const bankName = w.bankSnapshot?.bankName?.toLowerCase() || '';
+        const accHolder = w.bankSnapshot?.accountHolderName?.toLowerCase() || '';
+        const accNo = w.bankSnapshot?.accountNumber || '';
+        const ifsc = w.bankSnapshot?.ifscCode?.toLowerCase() || '';
+        const txnNo = w.transactionNumber?.toLowerCase() || '';
+        return (
+          userName.includes(q) ||
+          userPhone.includes(q) ||
+          bankName.includes(q) ||
+          accHolder.includes(q) ||
+          accNo.includes(q) ||
+          ifsc.includes(q) ||
+          txnNo.includes(q)
+        );
+      });
+    }
+
+    // Compute Summary Stats
+    const allWithdrawals = await Withdrawal.find({});
+    const summary = {
+      totalCount: allWithdrawals.length,
+      totalAmount: allWithdrawals.reduce((sum, w) => sum + (w.amount || 0), 0),
+      pendingCount: allWithdrawals.filter((w) => w.status === 'pending').length,
+      pendingAmount: allWithdrawals
+        .filter((w) => w.status === 'pending')
+        .reduce((sum, w) => sum + (w.amount || 0), 0),
+      processingCount: allWithdrawals.filter((w) => w.status === 'processing').length,
+      processingAmount: allWithdrawals
+        .filter((w) => w.status === 'processing')
+        .reduce((sum, w) => sum + (w.amount || 0), 0),
+      approvedCount: allWithdrawals.filter((w) => w.status === 'approved').length,
+      approvedAmount: allWithdrawals
+        .filter((w) => w.status === 'approved')
+        .reduce((sum, w) => sum + (w.amount || 0), 0),
+      rejectedCount: allWithdrawals.filter((w) => w.status === 'rejected').length,
+      rejectedAmount: allWithdrawals
+        .filter((w) => w.status === 'rejected')
+        .reduce((sum, w) => sum + (w.amount || 0), 0),
+    };
+
+    return res.status(200).json({
+      success: true,
+      count: withdrawals.length,
+      summary,
+      withdrawals,
+    });
   } catch (error) {
     console.error(error);
     return res.status(500).json({ success: false, message: 'Server error' });
   }
 };
 
-// @desc    Process Withdrawal Request (Approve/Reject)
+// @desc    Bulk Mark Payouts as Processing (Download RTGS / In-Process)
+// @route   POST /api/admin/withdrawals/bulk-processing
+// @access  Private (Admin only)
+exports.bulkProcessWithdrawals = async (req, res) => {
+  try {
+    const { withdrawalIds } = req.body;
+    if (!withdrawalIds || !Array.isArray(withdrawalIds) || withdrawalIds.length === 0) {
+      return res.status(400).json({ success: false, message: 'No withdrawal IDs provided' });
+    }
+
+    const withdrawals = await Withdrawal.find({
+      _id: { $in: withdrawalIds },
+      status: 'pending',
+    });
+
+    if (withdrawals.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'No eligible pending withdrawals found to mark as processing',
+      });
+    }
+
+    const updatedIds = [];
+    for (const w of withdrawals) {
+      w.status = 'processing';
+      w.processingDate = new Date();
+      w.approvedOrRejectedBy = req.user._id;
+      await w.save();
+      updatedIds.push(w._id);
+
+      // Send User in-app notification
+      try {
+        await Notification.create({
+          userId: w.userId,
+          title: 'Withdrawal In Bank Processing',
+          message: `Your withdrawal request of ₹${w.amount} has been queued for bank RTGS/NEFT transfer.`,
+          type: 'withdrawal',
+        });
+
+        const user = await User.findById(w.userId);
+        if (user && user.fcmToken) {
+          await sendPushNotification(
+            user.fcmToken,
+            'Withdrawal In Process',
+            `Your payout of ₹${w.amount} is currently being processed by the bank via RTGS/NEFT.`
+          );
+        }
+      } catch (notifyErr) {
+        console.error('Notification error in bulk processing:', notifyErr);
+      }
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: `Successfully marked ${updatedIds.length} payout(s) as processing`,
+      processedCount: updatedIds.length,
+    });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ success: false, message: 'Server error during bulk processing' });
+  }
+};
+
+// @desc    Process Withdrawal Request (Approve/Complete or Reject)
 // @route   PUT /api/admin/withdrawals/:id/process
 // @access  Private (Admin only)
 exports.processWithdrawal = async (req, res) => {
   try {
-    const { action, adminRemarks } = req.body; // action: 'approve' or 'reject'
+    const { action, adminRemarks, transactionNumber } = req.body; // action: 'approve' | 'complete' | 'reject'
 
-    if (!action || !['approve', 'reject'].includes(action)) {
-      return res.status(400).json({ success: false, message: 'Invalid action. Must be approve or reject.' });
+    if (!action || !['approve', 'complete', 'reject'].includes(action)) {
+      return res.status(400).json({ success: false, message: 'Invalid action. Must be approve, complete, or reject.' });
     }
 
     const withdrawal = await Withdrawal.findById(req.params.id);
@@ -374,8 +503,8 @@ exports.processWithdrawal = async (req, res) => {
       return res.status(404).json({ success: false, message: 'Withdrawal request not found' });
     }
 
-    if (withdrawal.status !== 'pending') {
-      return res.status(400).json({ success: false, message: 'Withdrawal request has already been processed' });
+    if (withdrawal.status === 'approved' || withdrawal.status === 'rejected') {
+      return res.status(400).json({ success: false, message: 'Withdrawal request has already been finalized' });
     }
 
     const wallet = await Wallet.findOne({ userId: withdrawal.userId });
@@ -383,8 +512,8 @@ exports.processWithdrawal = async (req, res) => {
       return res.status(404).json({ success: false, message: 'Wallet not found for the user' });
     }
 
-    if (action === 'approve') {
-      // Validate wallet balance again
+    if (action === 'approve' || action === 'complete') {
+      // Validate wallet balance
       if (wallet.balance < withdrawal.amount) {
         return res.status(400).json({ success: false, message: 'Insufficient wallet balance' });
       }
@@ -392,6 +521,8 @@ exports.processWithdrawal = async (req, res) => {
       // Deduct from wallet
       wallet.balance -= withdrawal.amount;
       await wallet.save();
+
+      const txnNo = transactionNumber?.trim() || '';
 
       // Log transaction
       await Transaction.create({
@@ -401,25 +532,29 @@ exports.processWithdrawal = async (req, res) => {
         amount: withdrawal.amount,
         referenceId: withdrawal._id,
         status: 'completed',
-        description: `Withdrawal transfer to bank approved`,
+        description: `Withdrawal transfer to bank completed. ${txnNo ? `Ref/UTR: ${txnNo}` : ''}`,
       });
 
       withdrawal.status = 'approved';
+      withdrawal.transactionNumber = txnNo;
     } else {
       withdrawal.status = 'rejected';
     }
 
-    withdrawal.adminRemarks = adminRemarks || `Withdrawal request ${action}d`;
+    withdrawal.adminRemarks = adminRemarks || (withdrawal.status === 'approved' ? 'Payment processed successfully' : 'Withdrawal request rejected');
     withdrawal.approvedOrRejectedBy = req.user._id;
     withdrawal.processedAt = Date.now();
     await withdrawal.save();
 
     // Notify user
+    const isApproved = withdrawal.status === 'approved';
+    const txnNote = withdrawal.transactionNumber ? ` (UTR/Ref No: ${withdrawal.transactionNumber})` : '';
+
     await Notification.create({
       userId: withdrawal.userId,
-      title: `Withdrawal Request ${action === 'approve' ? 'Approved' : 'Rejected'}`,
-      message: action === 'approve'
-        ? `Your request for withdrawal of ₹${withdrawal.amount} has been successfully processed.`
+      title: `Withdrawal ${isApproved ? 'Paid & Completed' : 'Rejected'}`,
+      message: isApproved
+        ? `Your withdrawal of ₹${withdrawal.amount} has been successfully transferred to your bank account${txnNote}.`
         : `Your request for withdrawal of ₹${withdrawal.amount} was rejected. Reason: ${withdrawal.adminRemarks}`,
       type: 'withdrawal',
     });
@@ -428,16 +563,16 @@ exports.processWithdrawal = async (req, res) => {
     if (user && user.fcmToken) {
       await sendPushNotification(
         user.fcmToken,
-        `Withdrawal ${action === 'approve' ? 'Approved' : 'Rejected'}`,
-        action === 'approve'
-          ? `Your withdrawal of ₹${withdrawal.amount} is processed.`
+        `Withdrawal ${isApproved ? 'Completed' : 'Rejected'}`,
+        isApproved
+          ? `Your withdrawal of ₹${withdrawal.amount} is completed${txnNote}.`
           : `Your withdrawal of ₹${withdrawal.amount} was rejected.`
       );
     }
 
     return res.status(200).json({
       success: true,
-      message: `Withdrawal request ${action}d successfully`,
+      message: `Withdrawal ${isApproved ? 'completed' : 'rejected'} successfully`,
       withdrawal,
     });
   } catch (error) {

@@ -20,8 +20,12 @@ const WithdrawalSchema = new mongoose.Schema(
     },
     status: {
       type: String,
-      enum: ['pending', 'approved', 'rejected'],
+      enum: ['pending', 'processing', 'approved', 'rejected'],
       default: 'pending',
+    },
+    transactionNumber: {
+      type: String,
+      default: '',
     },
     adminRemarks: {
       type: String,
@@ -30,6 +34,9 @@ const WithdrawalSchema = new mongoose.Schema(
     approvedOrRejectedBy: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User',
+    },
+    processingDate: {
+      type: Date,
     },
     processedAt: {
       type: Date,
