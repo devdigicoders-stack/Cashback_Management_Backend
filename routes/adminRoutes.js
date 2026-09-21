@@ -57,6 +57,7 @@ const {
   getWithdrawals,
   bulkProcessWithdrawals,
   processWithdrawal,
+  bulkUploadWithdrawalUTRs,
   getAppConfig,
   updateAppConfig,
   getServiceRequestsAdmin,
@@ -142,6 +143,7 @@ router.get('/qrcodes', getQRCodes);
 // Withdrawal Request Processing
 router.get('/withdrawals', getWithdrawals);
 router.post('/withdrawals/bulk-processing', bulkProcessWithdrawals);
+router.post('/withdrawals/bulk-upload-utr', bulkUploadWithdrawalUTRs);
 router.put('/withdrawals/:id/process', processWithdrawal);
 
 // Website Content / App config Management

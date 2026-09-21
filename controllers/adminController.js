@@ -621,12 +621,141 @@ exports.processWithdrawal = async (req, res) => {
 
     return res.status(200).json({
       success: true,
-      message: `Withdrawal ${isApproved ? 'completed' : 'rejected'} successfully`,
+      message: `Withdrawal request ${action === 'approve' ? 'approved & marked as paid' : 'rejected'} successfully`,
       withdrawal,
     });
   } catch (error) {
     console.error(error);
     return res.status(500).json({ success: false, message: 'Server error' });
+  }
+};
+
+// @desc    Bulk Upload / Update Bank Transaction (UTR) Numbers for Withdrawals
+// @route   POST /api/admin/withdrawals/bulk-upload-utr
+// @access  Private (Admin only)
+exports.bulkUploadWithdrawalUTRs = async (req, res) => {
+  try {
+    const { transactions } = req.body;
+    if (!transactions || !Array.isArray(transactions) || transactions.length === 0) {
+      return res.status(400).json({ success: false, message: 'No transaction data provided' });
+    }
+
+    let updatedCount = 0;
+    let failedCount = 0;
+    const errors = [];
+    const updatedWithdrawals = [];
+
+    for (const item of transactions) {
+      const txnNo = item.transactionNumber?.toString().trim();
+      if (!txnNo) {
+        failedCount++;
+        errors.push(`Row without UTR / Transaction number skipped`);
+        continue;
+      }
+
+      let withdrawal = null;
+
+      // 1. Match by withdrawalId / ID if provided
+      const rawId = item.withdrawalId || item.id || item._id;
+      if (rawId && rawId.length === 24) {
+        withdrawal = await Withdrawal.findById(rawId);
+      }
+
+      // 2. Fallback match by Account Number + Amount if ID was not matched
+      if (!withdrawal && item.accountNumber) {
+        const cleanAcc = item.accountNumber.toString().trim();
+        const amt = Number(item.amount);
+        const findQuery = {
+          $or: [
+            { 'bankSnapshot.accountNumber': cleanAcc },
+            { 'bankDetails.accountNumber': cleanAcc }
+          ],
+          status: { $in: ['pending', 'processing'] }
+        };
+        if (!isNaN(amt) && amt > 0) {
+          findQuery.amount = amt;
+        }
+        withdrawal = await Withdrawal.findOne(findQuery);
+      }
+
+      if (!withdrawal) {
+        failedCount++;
+        errors.push(`Could not find matching withdrawal for: ${rawId || item.accountNumber || txnNo}`);
+        continue;
+      }
+
+      // If already rejected
+      if (withdrawal.status === 'rejected') {
+        failedCount++;
+        errors.push(`Withdrawal ${withdrawal._id} is already rejected`);
+        continue;
+      }
+
+      // Deduct wallet balance if not already approved
+      if (withdrawal.status !== 'approved') {
+        const wallet = await Wallet.findOne({ userId: withdrawal.userId });
+        if (wallet) {
+          if (wallet.balance >= withdrawal.amount) {
+            wallet.balance -= withdrawal.amount;
+            await wallet.save();
+          }
+
+          // Create transaction record
+          await Transaction.create({
+            walletId: wallet._id,
+            userId: withdrawal.userId,
+            type: 'debit_withdrawal',
+            amount: withdrawal.amount,
+            referenceId: withdrawal._id,
+            status: 'completed',
+            description: `Bank transfer completed via UTR upload. UTR/Ref: ${txnNo}`,
+          });
+        }
+      }
+
+      withdrawal.status = 'approved';
+      withdrawal.transactionNumber = txnNo;
+      withdrawal.adminRemarks = item.adminRemarks?.trim() || withdrawal.adminRemarks || 'Bank transfer completed via UTR upload';
+      withdrawal.approvedOrRejectedBy = req.user._id;
+      withdrawal.processedAt = Date.now();
+      await withdrawal.save();
+
+      // In-app notification & push notification
+      try {
+        await Notification.create({
+          userId: withdrawal.userId,
+          title: 'Withdrawal Amount Transferred',
+          message: `₹${withdrawal.amount} transferred successfully to your bank. UTR: ${txnNo}`,
+          type: 'withdrawal',
+        });
+
+        const user = await User.findById(withdrawal.userId);
+        if (user && user.fcmToken) {
+          await sendPushNotification(
+            user.fcmToken,
+            'Withdrawal Amount Transferred',
+            `₹${withdrawal.amount} has been deposited to your bank account. Bank UTR/Ref No: ${txnNo}`
+          );
+        }
+      } catch (notifyErr) {
+        console.error('Notification error in bulk UTR upload:', notifyErr);
+      }
+
+      updatedCount++;
+      updatedWithdrawals.push(withdrawal);
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: `Successfully uploaded ${updatedCount} transaction UTR number(s).${failedCount > 0 ? ` (${failedCount} failed/skipped)` : ''}`,
+      updatedCount,
+      failedCount,
+      errors: errors.slice(0, 5),
+      updatedWithdrawals,
+    });
+  } catch (error) {
+    console.error('Error in bulkUploadWithdrawalUTRs:', error);
+    return res.status(500).json({ success: false, message: 'Server error during bulk UTR upload' });
   }
 };
 
