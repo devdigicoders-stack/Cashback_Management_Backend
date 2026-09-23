@@ -8,6 +8,12 @@ const QRCodeSchema = new mongoose.Schema(
       unique: true,
       trim: true,
     },
+    shortCode: {
+      type: String,
+      trim: true,
+      uppercase: true,
+      index: true,
+    },
     productId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Product',

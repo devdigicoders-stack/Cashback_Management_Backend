@@ -34,6 +34,11 @@ const TransactionSchema = new mongoose.Schema(
       type: String,
       trim: true,
     },
+    transactionNumber: {
+      type: String,
+      trim: true,
+      default: '',
+    },
   },
   {
     timestamps: true,

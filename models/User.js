@@ -69,6 +69,7 @@ const UserSchema = new mongoose.Schema(
       accountNumber: { type: String },
       ifscCode: { type: String },
       bankName: { type: String },
+      passbookChequeUrl: { type: String, default: '' },
     },
     salesPerson: {
       type: mongoose.Schema.Types.ObjectId,

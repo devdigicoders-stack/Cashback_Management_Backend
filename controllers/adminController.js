@@ -289,9 +289,12 @@ exports.generateQRCodes = async (req, res) => {
       // Create a unique hash format code: SKU-timestamp-randomHex
       const randomHex = crypto.randomBytes(6).toString('hex').toUpperCase();
       const codeString = `${product.sku}-${now}-${randomHex}`;
+      // Clean, concise 8-character uppercase short code for easy manual typing
+      const shortCode = crypto.randomBytes(4).toString('hex').toUpperCase();
 
       generatedCodes.push({
         code: codeString,
+        shortCode: shortCode,
         productId: product._id,
         qrType: qrType,
         status: 'generated',
@@ -305,7 +308,7 @@ exports.generateQRCodes = async (req, res) => {
       success: true,
       message: `Successfully generated ${count} QR codes for product ${product.name}`,
       count: qrcodes.length,
-      qrcodes: qrcodes.map((qr) => ({ id: qr._id, code: qr.code, status: qr.status, qrType: qr.qrType })),
+      qrcodes: qrcodes.map((qr) => ({ id: qr._id, code: qr.code, shortCode: qr.shortCode, status: qr.status, qrType: qr.qrType })),
     });
   } catch (error) {
     console.error(error);
@@ -580,6 +583,7 @@ exports.processWithdrawal = async (req, res) => {
         type: 'debit_withdrawal',
         amount: withdrawal.amount,
         referenceId: withdrawal._id,
+        transactionNumber: txnNo,
         status: 'completed',
         description: `Withdrawal transfer to bank completed. ${txnNo ? `Ref/UTR: ${txnNo}` : ''}`,
       });
@@ -707,6 +711,7 @@ exports.bulkUploadWithdrawalUTRs = async (req, res) => {
             type: 'debit_withdrawal',
             amount: withdrawal.amount,
             referenceId: withdrawal._id,
+            transactionNumber: txnNo,
             status: 'completed',
             description: `Bank transfer completed via UTR upload. UTR/Ref: ${txnNo}`,
           });

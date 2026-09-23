@@ -76,7 +76,7 @@ router.post('/reset-password', resetPassword);
 // Private routes
 router.get('/me', protect, getMe);
 router.put('/profile', protect, upload.single('profileImage'), updateProfile);
-router.put('/bank-details', protect, updateBankDetails);
+router.put('/bank-details', protect, upload.single('passbookCheque'), updateBankDetails);
 router.post('/change-password', protect, changePassword);
 router.put('/fcm-token', protect, updateFcmToken);
 

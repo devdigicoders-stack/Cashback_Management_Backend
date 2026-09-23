@@ -6,6 +6,7 @@ const Notification = require('../models/Notification');
 const ServiceRequest = require('../models/ServiceRequest');
 const AppConfig = require('../models/AppConfig');
 const SalesPerson = require('../models/SalesPerson');
+const Withdrawal = require('../models/Withdrawal');
 const sendEmail = require('../utils/sendEmail');
 
 // Generate JWT Token
@@ -213,18 +214,48 @@ exports.updateBankDetails = async (req, res) => {
     }
 
     const user = await User.findById(req.user.id);
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    let passbookChequeUrl = user.bankDetails?.passbookChequeUrl || '';
+    if (req.file) {
+      passbookChequeUrl = `/uploads/${req.file.filename}`;
+    }
+
+    if (!passbookChequeUrl) {
+      return res.status(400).json({
+        success: false,
+        message: 'Uploading a copy of Passbook or Cheque is mandatory (*)',
+      });
+    }
+
     user.bankDetails = {
       accountHolderName,
       accountNumber,
       ifscCode,
       bankName,
+      passbookChequeUrl,
     };
 
     await user.save();
 
+    // If user has any pending withdrawals with incomplete bank snapshot, update them
+    await Withdrawal.updateMany(
+      { userId: user._id, status: 'pending' },
+      {
+        $set: {
+          'bankSnapshot.accountHolderName': accountHolderName,
+          'bankSnapshot.accountNumber': accountNumber,
+          'bankSnapshot.ifscCode': ifscCode,
+          'bankSnapshot.bankName': bankName,
+        }
+      }
+    );
+
     return res.status(200).json({
       success: true,
-      message: 'Bank details updated successfully',
+      message: 'Bank details saved successfully',
       bankDetails: user.bankDetails,
     });
   } catch (error) {
@@ -290,6 +321,16 @@ exports.submitKYC = async (req, res) => {
 
     if (!user) {
       return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    const effectiveAadhar = (aadharNumber || user.kycDetails?.aadharNumber || '').trim();
+    const effectivePan = (panNumber || user.kycDetails?.panNumber || '').trim();
+
+    if (!effectiveAadhar || !effectivePan) {
+      return res.status(400).json({
+        success: false,
+        message: 'Both Aadhaar Number and PAN Number are mandatory (*)',
+      });
     }
 
     // Structure files uploaded

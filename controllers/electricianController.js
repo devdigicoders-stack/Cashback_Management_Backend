@@ -59,8 +59,17 @@ exports.scanQRCode = async (req, res) => {
       });
     }
 
-    // 2. Fetch the QR Code details first (to know which product and cashback rate is configured)
-    const initialQR = await QRCode.findOne({ code });
+    const trimmedCode = code.trim();
+
+    // 2. Fetch the QR Code details (supports full code, shortCode, or end suffix)
+    const initialQR = await QRCode.findOne({
+      $or: [
+        { code: trimmedCode },
+        { shortCode: trimmedCode.toUpperCase() },
+        { code: { $regex: `${trimmedCode}$`, $options: 'i' } }
+      ]
+    });
+
     if (!initialQR) {
       return res.status(404).json({ success: false, message: 'Invalid QR Code' });
     }
@@ -85,7 +94,7 @@ exports.scanQRCode = async (req, res) => {
 
     // 3. Atomically update the QR code status to 'scanned' to prevent race conditions (double scans)
     const qrcode = await QRCode.findOneAndUpdate(
-      { code, status: 'generated' }, // Must still be 'generated' (or not scanned)
+      { _id: initialQR._id, status: 'generated' }, // Must still be 'generated'
       {
         status: 'scanned',
         scannedBy: user._id,
@@ -96,7 +105,6 @@ exports.scanQRCode = async (req, res) => {
     );
 
     if (!qrcode) {
-      // If null, it means status changed from 'generated' in the split-second between our check and update
       return res.status(400).json({ success: false, message: 'This QR Code was just scanned by another process' });
     }
 
@@ -120,20 +128,50 @@ exports.scanQRCode = async (req, res) => {
       description: `Cashback credited for scanning ${product.name} (SKU: ${product.sku})`,
     });
 
-    // 6. Notify the user
+    // 6. Automatically queue payout into Admin's Pending Transfer list (Point 10)
+    let pendingWithdrawal = await Withdrawal.findOne({
+      userId: user._id,
+      status: 'pending',
+    });
+
+    const bankSnap = {
+      accountHolderName: user.bankDetails?.accountHolderName || user.name,
+      accountNumber: user.bankDetails?.accountNumber || 'Pending Details',
+      ifscCode: user.bankDetails?.ifscCode || 'Pending',
+      bankName: user.bankDetails?.bankName || 'Pending',
+    };
+
+    if (pendingWithdrawal) {
+      pendingWithdrawal.amount += cashbackAmount;
+      if (user.bankDetails?.accountNumber) {
+        pendingWithdrawal.bankSnapshot = bankSnap;
+      }
+      await pendingWithdrawal.save();
+    } else {
+      pendingWithdrawal = await Withdrawal.create({
+        userId: user._id,
+        amount: cashbackAmount,
+        bankSnapshot: bankSnap,
+        status: 'pending',
+        adminRemarks: 'Automated payout queued from product scans (Monthly payout: 1st–10th)',
+      });
+    }
+
+    // 7. Notify the user
     await Notification.create({
       userId: user._id,
       title: 'Cashback Credited!',
-      message: `₹${cashbackAmount} has been instantly credited to your wallet for scanning ${product.name}.`,
+      message: `₹${cashbackAmount} has been credited for scanning ${product.name}. Payout is queued for transfer to your bank between 1st–10th.`,
       type: 'cashback',
     });
 
     return res.status(200).json({
       success: true,
-      message: 'QR Code scanned successfully. Cashback credited.',
+      message: 'QR Code scanned successfully. Cashback queued for bank transfer.',
       cashbackCredited: cashbackAmount,
       newWalletBalance: wallet.balance,
       transaction,
+      pendingWithdrawalId: pendingWithdrawal._id,
     });
   } catch (error) {
     console.error(error);
@@ -198,14 +236,14 @@ exports.requestWithdrawal = async (req, res) => {
     // Notify user
     await Notification.create({
       userId: user._id,
-      title: 'Withdrawal Requested',
-      message: `Your request to withdraw ₹${amount} is submitted and is pending admin approval.`,
+      title: 'Payout Queued',
+      message: `Your payout of ₹${amount} is queued and will be credited to your bank account between the 1st and 10th of the month.`,
       type: 'withdrawal',
     });
 
     return res.status(201).json({
       success: true,
-      message: 'Withdrawal request submitted successfully',
+      message: 'Payouts are automatically queued upon QR scan and credited between the 1st and 10th of the month.',
       withdrawal,
     });
   } catch (error) {
@@ -235,7 +273,10 @@ exports.getScanHistory = async (req, res) => {
 // @access  Private (Electrician only)
 exports.getTransactions = async (req, res) => {
   try {
-    const transactions = await Transaction.find({ userId: req.user.id }).lean();
+    const transactions = (await Transaction.find({ userId: req.user.id }).lean()).map((t) => ({
+      ...t,
+      transactionNumber: t.transactionNumber || '',
+    }));
     const activeWithdrawals = await Withdrawal.find({ userId: req.user.id, status: { $in: ['pending', 'processing'] } }).lean();
 
     const merged = [
@@ -247,7 +288,7 @@ exports.getTransactions = async (req, res) => {
         status: w.status,
         description: w.status === 'processing'
           ? 'Payment in process (Bank RTGS/NEFT transfer queued)'
-          : 'Withdrawal request pending admin approval',
+          : 'Payout queued - Pending Bank Transfer (Credit: 1st–10th)',
         createdAt: w.createdAt,
         transactionNumber: w.transactionNumber || '',
       }))
